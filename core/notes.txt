@@ -1,0 +1,11 @@
+Strategy
+ - emits signal
+
+market contains data
+
+portfolio takes in signals, generates orders, based on
+available capital and rebalancing logic
+
+market executes orders
+
+portfolio updates holdings and PnL

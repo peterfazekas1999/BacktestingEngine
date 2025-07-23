@@ -13,7 +13,7 @@ class AbstractBacktestingEngine(ABC):
 
 class BacktestingEngine:
 
-    def __init__(self, market: Market, strategy: Strategy):
+    def __init__(self, market: Market, strategy: Strategy,):
         self.market = market
         self.strategy = strategy
 

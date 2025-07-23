@@ -5,6 +5,7 @@ class Signal:
 
 
 class Strategy(ABC):
+
     @abstractmethod
     def on_data(self, value) -> Signal:
         pass
