@@ -12,6 +12,8 @@ class Order:
     side: TradeSide
     quantity: Quantity
     price: Price = None
+    def __str__(self):
+        return f"Order({self.timestamp}, {self.symbol} ,{self.order_type}, {self.side}, {self.quantity}, {self.price})"
 
 class Trade:
     def __init__(
@@ -22,7 +24,7 @@ class Trade:
         side: TradeSide,
         quantity: int,
         filled: bool,
-        price: Price = None
+        execution_price: Price = None
     ):
         self.timestamp = timestamp
         self.symbol = symbol
@@ -30,7 +32,7 @@ class Trade:
         self.side = side
         self.quantity = quantity
         self.filled = filled
-        self.price = price
+        self.execution_price = execution_price
 
     def log(self):
         pass

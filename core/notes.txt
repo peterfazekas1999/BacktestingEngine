@@ -1,11 +1,37 @@
 Strategy
  - emits signal
+ -signal might want to buy at a certain time but there might be
+            a queue of orders to be exectued, keep signal timestamp
+            order and Trade timestamp separate
 
-market contains data
+Market
+ - contains data
+ - market executes orders, generates trades
 
-portfolio takes in signals, generates orders, based on
+Portfolio
+-portfolio takes in signals, generates orders, based on
 available capital and rebalancing logic
+- updates holdings and PnL, should be able to generate orders
+from signals and update current positions after executed trades
+- portfolio should also prevent wrong order generations, should catch it at
+ order generation stage
 
-market executes orders
+TODO: in Portfolio do proper accounting of unrealised pnl from holdings
+realised pnl and also total current portfolio value properly
 
-portfolio updates holdings and PnL
+
+
+
+Trade
+ - trade timestamp can differ from signal/ order timestamp
+ - the price of the trade is execution price, which then feeds back to
+ portfolio to update holdings and Positions and pnl, etc..
+
+
+ExecutionModel
+ - once integrated with brokers feeds or execution models
+     will either return true or false
+     how much was actually executed and at what price
+     for simplicity we now assume all orders are filled exactly at
+     market price successfully with no slippage
+     or with slippage for simplicity

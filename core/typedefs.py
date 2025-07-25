@@ -1,5 +1,6 @@
 from enum import Enum
 
+type Bps = float # basis points
 type Price = float
 type Quantity = int
 type Symbol = str
