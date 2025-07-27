@@ -1,7 +1,7 @@
 import math
 from collections import deque
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 import pandas as pd
 
@@ -12,27 +12,34 @@ from BacktestingEngine.core.typedefs import Symbol, TradeSide, Price, OrderType
 
 _SMALL_ORDER_QTY_CUTOFF = 1e-4
 
+
 @dataclass
 class PositionLot:
     timestamp: pd.Timestamp
     quantity: int
     price: float
+
     def __str__(self):
         return f"PositionLot({self.timestamp},{self.quantity},{self.price})"
+
 
 class Position:
     def __init__(self, symbol):
         self.symbol = symbol
         self.position_lots: deque[PositionLot] = deque()
+
     def add_position_lot(self, lot: PositionLot):
         self.position_lots.append(lot)
-    def close_position_lot(self, trade: Trade) -> float:
+
+    def close_position_lot(self, trade: Trade) -> Tuple[float, float]:
         # implement FIFO
         # need to report the PnL gain/loss too
         assert trade.side == TradeSide.SELL
         quantity_to_close = trade.quantity
         execution_price = trade.execution_price
         realised_pnl = 0.0
+        proceeds_from_sale = 0.0
+
         while quantity_to_close > 0:
             if self.position_lots:
                 curr_post_lot: PositionLot = self.position_lots.popleft()
@@ -42,9 +49,14 @@ class Position:
 
                 # calculate PnL
                 realised_pnl += curr_qty * (execution_price - curr_post_lot.price)
+                proceeds_from_sale += curr_qty * execution_price
             else:
                 raise ValueError("Trying to close non-existent positions")
-        return realised_pnl
+        return realised_pnl, proceeds_from_sale
+
+    def get_total_quantity(self):
+        return sum([pos_lot.quantity for pos_lot in self.position_lots])
+
 
 class Portfolio:
     def __init__(
@@ -55,7 +67,7 @@ class Portfolio:
         self.cash: float = initial_capital
         self.portfolio_value = self.cash + self.holdings
 
-        self.positions: Dict[Symbol,Position] = {}
+        self.positions: Dict[Symbol, Position] = {}
         self.realized_pnl = 0.0
         self.unrealized_pnl = 0.0
 
@@ -70,18 +82,36 @@ class Portfolio:
             order and Trade timestamp separate
         """
 
+        if signal is None:
+            return None
 
         # percentage holding of all available capital
         current_pct_holding = self.holdings / self.portfolio_value
         # how much the signal wants to allocate to the asset
         needed_pct_holding = signal.strength - current_pct_holding
         needed_holdings_value = self.portfolio_value * needed_pct_holding
-        order_qty = int(needed_holdings_value / current_price)
+        # Make absolute value as we will also pass TradeSide
+        order_qty = abs(int(needed_holdings_value / current_price))
         order_type = OrderType.MARKET  # Only supported currently, can extend later on
         side = TradeSide.BUY if needed_pct_holding > 0 else TradeSide.SELL
 
+        # signal is %tage based allocation of total portfolio value
+        # not target position or order based so if we sell,
+        # and the target order is greater than what we have, we clip it
+        if side == TradeSide.SELL:
+            positions = self.positions.get(signal.symbol, None)
+            if positions:
+                order_qty = min(order_qty, positions.get_total_quantity())
+
         if math.isclose(order_qty, 0.0, abs_tol=_SMALL_ORDER_QTY_CUTOFF):
             return None
+
+        """ TODO: SOMETHING IS WRONG
+            
+            e.g. we buy 2 @ £100 and then price goes to £10, we cant sell 20 @ £10
+            because we only have 2 units of the thing.... order generator
+            cannot suggest such position
+        """
 
         return Order(
             signal.timestamp,
@@ -116,7 +146,7 @@ class Portfolio:
             )
             initial_position.add_position_lot(initial_position_lot)
             self.positions[sym] = initial_position
-            logger.info("Updated portfolio.....")
+            # logger.info("Updated portfolio.....")
             # TODO: fazeptr update realised/ unrealised pnl here appropriately
             # TODO or split out the logic to do it more nicely
             self.cash -= trade.quantity * trade.execution_price
@@ -136,28 +166,32 @@ class Portfolio:
                 # TODO: fazeptr update realised/ unrealised pnl here appropriately
                 # TODO or split out the logic to do it more nicely
 
-                #How much it costs to do this trade
+                # How much it costs to do this trade
                 self.cash -= trade.quantity * trade.execution_price
-                logger.info("Updated portfolio.....")
+                # logger.info("Updated portfolio.....")
             else:
-                realised_pnl_from_trade = self.positions[sym].close_position_lot(trade)
+                realised_pnl_from_trade, proceeds_from_sale = self.positions[sym].close_position_lot(trade)
 
                 # TODO: fazeptr update realised/ unrealised pnl here appropriately
                 # TODO or split out the logic to do it more nicely, currently
                 # TODO: realised pnl goes into cash as well
-                #How much it costs to do this trade
+                # How much it costs to do this trade
                 # realised pnl is from closed trades but also affects our cash
+
+                # NOte careful here realised pnl can be negative e.g. -5000
                 self.realized_pnl += realised_pnl_from_trade
-                self.cash += realised_pnl_from_trade
+                self.cash += proceeds_from_sale
 
-                logger.info("Updated portfolio.....")
-
+                # logger.info("Updated portfolio.....")
 
     def mark_to_market(self, current_price: Price):
         """ Mark to Market based on current price"""
         self._calculate_unrealised_pnl(current_price)
         self._calculate_holdings(current_price)
         self._calculate_portfolio_value()
+        logger.info(f"MTM: total_pnl: {self.get_total_pnl()},"
+                    f"holdings: {self.holdings},"
+                    f"port val: {self.portfolio_value} ")
 
     def _calculate_unrealised_pnl(self, current_price: Price):
         """
@@ -171,7 +205,6 @@ class Portfolio:
                 total_unrealised_pnl += position_lot.quantity * (current_price - position_lot.price)
         self.unrealized_pnl = total_unrealised_pnl
 
-
     def _calculate_holdings(self, current_price: Price):
         """ Calculates total Marked to market value of all open positions """
         total_holdings = 0.0
@@ -181,21 +214,23 @@ class Portfolio:
                 total_holdings += position_lot.quantity * current_price
         self.holdings = total_holdings
 
-
     def _calculate_portfolio_value(self):
         self.portfolio_value = self.holdings + self.cash
 
     def get_unrealised_pnl(self):
         return self.unrealized_pnl
 
-
     def get_realised_pnl(self):
         return self.realized_pnl
 
+    def get_total_pnl(self):
+        return self.realized_pnl + self.unrealized_pnl
 
     def get_portfolio_value(self):
         return self.portfolio_value
 
+    def get_holdings(self):
+        pass
 
-
-
+    def get_cash(self):
+        pass
