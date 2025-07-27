@@ -1,3 +1,4 @@
+import math
 from collections import deque
 from dataclasses import dataclass
 from typing import Dict, Optional
@@ -9,6 +10,7 @@ from BacktestingEngine.core.order import Order, Trade
 from BacktestingEngine.core.signal import Signal
 from BacktestingEngine.core.typedefs import Symbol, TradeSide, Price, OrderType
 
+_SMALL_ORDER_QTY_CUTOFF = 1e-4
 
 @dataclass
 class PositionLot:
@@ -57,8 +59,8 @@ class Portfolio:
         self.realized_pnl = 0.0
         self.unrealized_pnl = 0.0
 
-    def generate_orders(self, signal: Signal, current_price: Price):
-        """ Generate orders from strategy signals
+    def generate_orders(self, signal: Signal, current_price: Price) -> Optional[Order]:
+        """ Generate orders from strategy signals,
 
             currently only supports one order for a single symbol
             for simplicity
@@ -77,6 +79,10 @@ class Portfolio:
         order_qty = int(needed_holdings_value / current_price)
         order_type = OrderType.MARKET  # Only supported currently, can extend later on
         side = TradeSide.BUY if needed_pct_holding > 0 else TradeSide.SELL
+
+        if math.isclose(order_qty, 0.0, abs_tol=_SMALL_ORDER_QTY_CUTOFF):
+            return None
+
         return Order(
             signal.timestamp,
             signal.symbol,
